@@ -1,4 +1,4 @@
-import http from 'node:http';
+{`import http from 'node:http';
 import {
     TikTokLiveConnection,
     WebcastEvent,
@@ -14,6 +14,9 @@ const TASKADE_WEBHOOK_URL = process.env.TASKADE_WEBHOOK_URL;
 let connection = null;
 let connected = false;
 let lastError = null;
+
+/* NOVO: evita múltiplas reconexões */
+let reconnecting = false;
 
 
 /*
@@ -42,7 +45,7 @@ async function enviarParaTaskade(evento) {
         });
 
         console.log(
-            `Taskade respondeu: ${resposta.status}`
+            \`Taskade respondeu: \${resposta.status}\`
         );
 
     } catch (erro) {
@@ -75,7 +78,12 @@ function criarEvento(tipo, dados = {}) {
 
         nome: usuario?.nickname || null,
 
-        comentario: dados?.comment || null,
+        /* Compatível com diferentes formatos */
+        comentario:
+            dados?.comment ||
+            dados?.text ||
+            dados?.message ||
+            null,
 
         giftId: dados?.giftId || null,
 
@@ -89,6 +97,48 @@ function criarEvento(tipo, dados = {}) {
 
         timestamp: new Date().toISOString()
     };
+}
+
+
+/*
+========================================================
+NOVA FUNÇÃO DE RECONEXÃO
+========================================================
+*/
+
+function reconectar() {
+
+    if (reconnecting) return;
+
+    reconnecting = true;
+
+    console.log('Reconectando em 5 segundos...');
+
+    setTimeout(async () => {
+
+        reconnecting = false;
+
+        try {
+
+            if (connection) {
+                try {
+                    connection.disconnect();
+                } catch {}
+            }
+
+            await conectarTikTok();
+
+        } catch (erro) {
+
+            console.error(
+                'Falha ao reconectar:',
+                erro.message
+            );
+
+            reconectar();
+        }
+
+    }, 5000);
 }
 
 
@@ -110,16 +160,8 @@ async function conectarTikTok() {
     }
 
     console.log(
-        `Tentando conectar ao TikTok LIVE de @${TIKTOK_USERNAME}...`
+        \`Tentando conectar ao TikTok LIVE de @\${TIKTOK_USERNAME}...\`
     );
-
-    /*
-    IMPORTANTE:
-
-    disableEulerFallbacks evita que o conector tente
-    determinadas rotas alternativas do Euler Stream
-    que podem exigir plano pago.
-    */
 
     connection = new TikTokLiveConnection(
         TIKTOK_USERNAME,
@@ -147,9 +189,10 @@ async function conectarTikTok() {
 
             connected = true;
             lastError = null;
+            reconnecting = false;
 
             console.log(
-                `TikTok conectado! Room ID: ${state.roomId}`
+                \`TikTok conectado! Room ID: \${state.roomId}\`
             );
         }
     );
@@ -170,6 +213,9 @@ async function conectarTikTok() {
             console.log(
                 'TikTok desconectado.'
             );
+
+            /* NOVO */
+            reconectar();
         }
     );
 
@@ -195,6 +241,9 @@ async function conectarTikTok() {
                 info,
                 exception
             );
+
+            /* NOVO */
+            reconectar();
         }
     );
 
@@ -216,7 +265,7 @@ async function conectarTikTok() {
             );
 
             console.log(
-                `[COMENTÁRIO] ${evento.nome}: ${evento.comentario}`
+                \`[COMENTÁRIO] \${evento.nome}: \${evento.comentario}\`
             );
 
             await enviarParaTaskade(evento);
@@ -241,7 +290,7 @@ async function conectarTikTok() {
             );
 
             console.log(
-                `[PRESENTE] ${evento.nome} - Gift ID: ${evento.giftId}`
+                \`[PRESENTE] \${evento.nome} - Gift ID: \${evento.giftId}\`
             );
 
             await enviarParaTaskade(evento);
@@ -266,7 +315,7 @@ async function conectarTikTok() {
             );
 
             console.log(
-                `[ENTRADA] ${evento.nome}`
+                \`[ENTRADA] \${evento.nome}\`
             );
 
             await enviarParaTaskade(evento);
@@ -291,7 +340,7 @@ async function conectarTikTok() {
             );
 
             console.log(
-                `[SEGUIU] ${evento.nome}`
+                \`[SEGUIU] \${evento.nome}\`
             );
 
             await enviarParaTaskade(evento);
@@ -316,7 +365,7 @@ async function conectarTikTok() {
             );
 
             console.log(
-                `[COMPARTILHOU] ${evento.nome}`
+                \`[COMPARTILHOU] \${evento.nome}\`
             );
 
             await enviarParaTaskade(evento);
@@ -350,6 +399,9 @@ async function conectarTikTok() {
             'Não foi possível conectar ao TikTok:',
             lastError
         );
+
+        /* NOVO */
+        reconectar();
     }
 }
 
@@ -362,12 +414,6 @@ SERVIDOR HTTP
 
 const server = http.createServer(
     (request, response) => {
-
-        /*
-        -----------------------------------------------
-        HEALTH CHECK
-        -----------------------------------------------
-        */
 
         if (
             request.method === 'GET' &&
@@ -407,12 +453,6 @@ const server = http.createServer(
         }
 
 
-        /*
-        -----------------------------------------------
-        ROTA PRINCIPAL
-        -----------------------------------------------
-        */
-
         if (
             request.method === 'GET' &&
             request.url === '/'
@@ -445,12 +485,6 @@ const server = http.createServer(
         }
 
 
-        /*
-        -----------------------------------------------
-        404
-        -----------------------------------------------
-        */
-
         response.writeHead(
             404,
             {
@@ -480,9 +514,9 @@ server.listen(
     () => {
 
         console.log(
-            `Servidor rodando na porta ${PORT}`
+            \`Servidor rodando na porta \${PORT}\`
         );
 
         conectarTikTok();
     }
-);
+);`}
