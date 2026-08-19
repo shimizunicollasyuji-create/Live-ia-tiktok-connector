@@ -1,17 +1,15 @@
 {
-  "name": "connector-tiktok-ao-vivo",
+  "name": "live-ia-tiktok-connector",
   "version": "1.0.0",
-  "description": "Conector do TikTok LIVE para receber comentários e presentes",
-  "private": true,
   "type": "module",
-  "main": "src/servidor.js",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node src/servidor.js"
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "tiktok-live-connector": "2.4.3"
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "tiktok-live-connector": "^2.4.3"
   }
 }
