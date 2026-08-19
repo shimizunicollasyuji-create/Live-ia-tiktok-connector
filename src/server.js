@@ -1,8 +1,8 @@
-{`import http from 'node:http';
+import http from 'node:http';
 import {
-  TikTokLiveConnection,
-  WebcastEvent,
-  ControlEvent
+    TikTokLiveConnection,
+    WebcastEvent,
+    ControlEvent
 } from 'tiktok-live-connector';
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -14,212 +14,270 @@ const TASKADE_WEBHOOK_URL = process.env.TASKADE_WEBHOOK_URL;
 let connection = null;
 let connected = false;
 let lastError = null;
-let reconnecting = false;
 
-// ==========================
-// Enviar para o Taskade
-// ==========================
+/*
+========================================================
+ENVIA OS EVENTOS PARA O TASKADE
+========================================================
+*/
+
 async function enviarParaTaskade(evento) {
-  if (!TASKADE_WEBHOOK_URL) return;
 
-  try {
-    const resposta = await fetch(TASKADE_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(evento)
-    });
+    if (!TASKADE_WEBHOOK_URL) {
+        console.log('TASKADE_WEBHOOK_URL não configurado.');
+        return;
+    }
 
-    console.log(\`Taskade respondeu: \${resposta.status}\`);
-  } catch (erro) {
-    console.error('Erro Taskade:', erro.message);
-  }
+    try {
+
+        const resposta = await fetch(TASKADE_WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(evento)
+        });
+
+        console.log(`Taskade respondeu: ${resposta.status}`);
+
+    } catch (erro) {
+
+        console.error(
+            'Erro ao enviar evento para o Taskade:',
+            erro.message
+        );
+    }
 }
 
-// ==========================
-// Padronizar evento
-// ==========================
+/*
+========================================================
+PADRONIZA OS EVENTOS DO TIKTOK
+========================================================
+*/
+
 function criarEvento(tipo, dados = {}) {
-  const usuario = dados?.user || {};
 
-  return {
-    origem: 'tiktok',
-    tipo,
-    usuario: usuario.uniqueId || null,
-    nome: usuario.nickname || null,
-    comentario: dados.comment || null,
-    giftId: dados.giftId || null,
-    giftName: dados.giftName || null,
-    giftCount: dados.repeatCount || null,
-    likeCount: dados.likeCount || null,
-    viewerCount: dados.viewerCount || null,
-    timestamp: new Date().toISOString()
-  };
+    const usuario = dados?.user || {};
+
+    return {
+        origem: 'tiktok',
+        tipo,
+        usuario: usuario?.uniqueId || null,
+        nome: usuario?.nickname || null,
+        comentario: dados?.comment || null,
+        giftId: dados?.giftId || null,
+        giftName: dados?.giftName || null,
+        giftCount: dados?.repeatCount || null,
+        likeCount: dados?.likeCount || null,
+        viewerCount: dados?.viewerCount || null,
+        timestamp: new Date().toISOString()
+    };
 }
 
-// ==========================
-// Reconexão automática
-// ==========================
-function reconectar() {
-  if (reconnecting) return;
+/*
+========================================================
+CONECTA AO TIKTOK
+========================================================
+*/
 
-  reconnecting = true;
-
-  console.log('Reconectando em 5 segundos...');
-
-  setTimeout(async () => {
-    reconnecting = false;
-    await conectarTikTok();
-  }, 5000);
-}
-
-// ==========================
-// Conectar TikTok
-// ==========================
 async function conectarTikTok() {
-  if (!TIKTOK_USERNAME) {
-    console.error('TIKTOK_USERNAME não configurado.');
-    return;
-  }
 
-  console.log(\`Conectando @\${TIKTOK_USERNAME}...\`);
+    if (!TIKTOK_USERNAME) {
+        console.error('TIKTOK_USERNAME não configurado.');
+        return;
+    }
 
-  connection = new TikTokLiveConnection(TIKTOK_USERNAME, {
-    processInitialData: false,
-    disableEulerFallbacks: true,
-    enableExtendedGiftInfo: false,
-    requestPollingIntervalMs: 3000
-  });
+    console.log(
+        `Tentando conectar ao TikTok LIVE de @${TIKTOK_USERNAME}...`
+    );
 
-  connection.on(ControlEvent.CONNECTED, state => {
-    connected = true;
-    lastError = null;
+    connection = new TikTokLiveConnection(
+        TIKTOK_USERNAME,
+        {
+            processInitialData: false,
+            disableEulerFallbacks: true,
+            enableExtendedGiftInfo: false,
+            requestPollingIntervalMs: 3000
+        }
+    );
 
-    console.log(\`TikTok conectado! Sala \${state.roomId}\`);
-  });
+    connection.on(ControlEvent.CONNECTED, state => {
 
-  connection.on(ControlEvent.DISCONNECTED, () => {
-    connected = false;
-    console.log('TikTok desconectado.');
-    reconectar();
-  });
+        connected = true;
+        lastError = null;
 
-  connection.on(ControlEvent.ERROR, ({ info, exception }) => {
-    connected = false;
-    lastError = exception?.message || String(exception);
+        console.log(`TikTok conectado! Room ID: ${state.roomId}`);
+    });
 
-    console.error('Erro TikTok:', info);
-    reconectar();
-  });
+    connection.on(ControlEvent.DISCONNECTED, () => {
 
-  // Comentários
-  connection.on(WebcastEvent.CHAT, async data => {
-    const evento = criarEvento('comentario', data);
+        connected = false;
+        console.log('TikTok desconectado.');
+    });
 
-    console.log(\`[CHAT] \${evento.nome}: \${evento.comentario}\`);
+    connection.on(
+        ControlEvent.ERROR,
+        ({ info, exception }) => {
 
-    await enviarParaTaskade(evento);
-  });
+            connected = false;
 
-  // Presentes
-  connection.on(WebcastEvent.GIFT, async data => {
-    const evento = criarEvento('presente', data);
+            lastError =
+                exception?.message ||
+                String(exception);
 
-    console.log(\`[GIFT] \${evento.nome}\`);
+            console.error(
+                'Erro do TikTok:',
+                info,
+                exception
+            );
+        }
+    );
 
-    await enviarParaTaskade(evento);
-  });
+    // COMENTÁRIOS
+    connection.on(WebcastEvent.CHAT, async data => {
 
-  // Entrada
-  connection.on(WebcastEvent.MEMBER, async data => {
-    const evento = criarEvento('entrada', data);
+        const evento = criarEvento('comentario', data);
 
-    console.log(\`[ENTROU] \${evento.nome}\`);
+        console.log(
+            `[COMENTÁRIO] ${evento.nome}: ${evento.comentario}`
+        );
 
-    await enviarParaTaskade(evento);
-  });
+        await enviarParaTaskade(evento);
+    });
 
-  // Seguiu
-  connection.on(WebcastEvent.FOLLOW, async data => {
-    const evento = criarEvento('seguir', data);
+    // PRESENTES
+    connection.on(WebcastEvent.GIFT, async data => {
 
-    console.log(\`[SEGUIU] \${evento.nome}\`);
+        const evento = criarEvento('presente', data);
 
-    await enviarParaTaskade(evento);
-  });
+        console.log(
+            `[PRESENTE] ${evento.nome} - Gift ID: ${evento.giftId}`
+        );
 
-  // Compartilhou
-  connection.on(WebcastEvent.SHARE, async data => {
-    const evento = criarEvento('compartilhou', data);
+        await enviarParaTaskade(evento);
+    });
 
-    console.log(\`[SHARE] \${evento.nome}\`);
+    // ENTRADA
+    connection.on(WebcastEvent.MEMBER, async data => {
 
-    await enviarParaTaskade(evento);
-  });
+        const evento = criarEvento('entrada', data);
 
-  try {
-    await connection.connect();
-    console.log('Conexão iniciada.');
-  } catch (erro) {
-    connected = false;
-    lastError = erro?.message || String(erro);
+        console.log(`[ENTRADA] ${evento.nome}`);
 
-    console.error('Falha ao conectar:', lastError);
+        await enviarParaTaskade(evento);
+    });
 
-    reconectar();
-  }
+    // SEGUIR
+    connection.on(WebcastEvent.FOLLOW, async data => {
+
+        const evento = criarEvento('seguir', data);
+
+        console.log(`[SEGUIU] ${evento.nome}`);
+
+        await enviarParaTaskade(evento);
+    });
+
+    // COMPARTILHAMENTO
+    connection.on(WebcastEvent.SHARE, async data => {
+
+        const evento = criarEvento('compartilhamento', data);
+
+        console.log(`[COMPARTILHOU] ${evento.nome}`);
+
+        await enviarParaTaskade(evento);
+    });
+
+    try {
+
+        await connection.connect();
+
+        console.log('Conexão com TikTok iniciada.');
+
+    } catch (erro) {
+
+        connected = false;
+
+        lastError =
+            erro?.message ||
+            String(erro);
+
+        console.error(
+            'Não foi possível conectar ao TikTok:',
+            lastError
+        );
+    }
 }
 
-// ==========================
-// Servidor HTTP
-// ==========================
-const server = http.createServer((req, res) => {
+/*
+========================================================
+SERVIDOR HTTP
+========================================================
+*/
 
-  if (req.method === 'GET' && req.url === '/health') {
-    const body = JSON.stringify({
-      status: 'ok',
-      service: 'live-ia-tiktok-connector',
-      tiktok: connected,
-      username: TIKTOK_USERNAME,
-      lastError,
-      timestamp: new Date().toISOString()
+const server = http.createServer((request, response) => {
+
+    if (
+        request.method === 'GET' &&
+        request.url === '/health'
+    ) {
+
+        const body = JSON.stringify({
+            status: 'ok',
+            service: 'live-ia-tiktok-connector',
+            tiktok: connected,
+            username: TIKTOK_USERNAME || null,
+            lastError,
+            timestamp: new Date().toISOString()
+        });
+
+        response.writeHead(200, {
+            'Content-Type':
+                'application/json; charset=utf-8'
+        });
+
+        return response.end(body);
+    }
+
+    if (
+        request.method === 'GET' &&
+        request.url === '/'
+    ) {
+
+        const body = JSON.stringify({
+            status: 'ok',
+            service: 'live-ia-tiktok-connector',
+            tiktokConnected: connected,
+            username: TIKTOK_USERNAME || null
+        });
+
+        response.writeHead(200, {
+            'Content-Type':
+                'application/json; charset=utf-8'
+        });
+
+        return response.end(body);
+    }
+
+    response.writeHead(404, {
+        'Content-Type': 'application/json'
     });
 
-    res.writeHead(200, {
-      'Content-Type': 'application/json'
-    });
-
-    return res.end(body);
-  }
-
-  if (req.method === 'GET' && req.url === '/') {
-    const body = JSON.stringify({
-      status: 'ok',
-      tiktokConnected: connected,
-      username: TIKTOK_USERNAME
-    });
-
-    res.writeHead(200, {
-      'Content-Type': 'application/json'
-    });
-
-    return res.end(body);
-  }
-
-  res.writeHead(404, {
-    'Content-Type': 'application/json'
-  });
-
-  res.end(JSON.stringify({
-    error: 'Not Found'
-  }));
+    response.end(
+        JSON.stringify({
+            error: 'Not Found'
+        })
+    );
 });
 
-// ==========================
-// Iniciar servidor
-// ==========================
+/*
+========================================================
+INICIA SERVIDOR
+========================================================
+*/
+
 server.listen(PORT, HOST, () => {
-  console.log(\`Servidor rodando na porta \${PORT}\`);
-  conectarTikTok();
-});`}
+
+    console.log(`Servidor rodando na porta ${PORT}`);
+
+    conectarTikTok();
+});
